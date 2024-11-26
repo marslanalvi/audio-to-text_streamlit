@@ -22,10 +22,10 @@ Create a virtual environment (optional but recommended) and install the required
 
 ```bash
 # Clone this repository
-git clone https://github.com/yourusername/whisper-transcription-app.git
+git clone https://github.com/marslanalvi/audio-to-text_streamlit.git
 
 # Navigate to the project folder
-cd whisper-transcription-app
+cd audio-to-text_steamlit
 
 # Create a virtual environment (optional)
 python -m venv venv
