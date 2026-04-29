@@ -1,5 +1,8 @@
-streamlit
-openai-whisper
-torch
+fastapi
+uvicorn
+python-multipart
+jinja2
+openai
+python-dotenv
+pyannote.audio
 pydub
-ffmpeg

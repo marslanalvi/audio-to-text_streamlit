@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Urdu Audio Transcription</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="card reveal">
+        <p class="badge">Urdu Diarized Transcription</p>
+        <h1>Upload audio and get clean speaker-wise text.</h1>
+        <p class="subtext">
+          Supported formats: MP3, WAV, M4A, OPUS. Output is formatted as Speaker 1, Speaker 2, and onward.
+        </p>
+
+        <form id="upload-form" class="upload-form">
+          <label for="audio-file" class="file-label">Choose audio file</label>
+          <input id="audio-file" name="file" type="file" accept=".mp3,.wav,.m4a,.opus,audio/*" required />
+          <button id="submit-btn" type="submit">Transcribe</button>
+        </form>
+
+        <p id="status" class="status"></p>
+        <pre id="result" class="result" aria-live="polite"></pre>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
