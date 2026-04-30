@@ -3,16 +3,13 @@ import difflib
 import json
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from openai import BadRequestError, OpenAI
-from pydub import AudioSegment
-
-# ── Your exact ffmpeg path ───────────────────────────────────────
-AudioSegment.converter = r"C:\ffmpeg-8.1-essentials_build\ffmpeg-8.1-essentials_build\bin\ffmpeg.exe"
-AudioSegment.ffprobe   = r"C:\ffmpeg-8.1-essentials_build\ffmpeg-8.1-essentials_build\bin\ffprobe.exe"
 
 MODEL_NAME = "gpt-4o-transcribe"
 POSTPROCESS_MODEL = "gpt-4.1-mini"
@@ -95,12 +92,24 @@ def _convert_to_valid_wav(audio_bytes: bytes, original_suffix: str) -> str:
     output_path = input_path + "_converted.wav"
 
     try:
-        audio = AudioSegment.from_file(input_path)
-        audio.export(
+        ffmpeg_bin = shutil.which("ffmpeg")
+        if not ffmpeg_bin:
+            raise RuntimeError("ffmpeg is not available on this server for audio conversion fallback.")
+
+        command = [
+            ffmpeg_bin,
+            "-y",
+            "-i",
+            input_path,
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
             output_path,
-            format="wav",
-            parameters=["-ar", "16000", "-ac", "1"],
-        )
+        ]
+        completed = subprocess.run(command, capture_output=True, text=True)
+        if completed.returncode != 0:
+            raise RuntimeError(f"ffmpeg conversion failed: {completed.stderr.strip()}")
         return output_path
     finally:
         try:
