@@ -42,8 +42,8 @@ async def transcribe(file: UploadFile = File(...)) -> JSONResponse:
     if not os.getenv("OPENAI_API_KEY"):
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured.")
 
-    transcription = await transcribe_audio(audio_bytes, file.filename or "audio.mp3")
-    return JSONResponse({"transcription": transcription})
+    payload = await transcribe_audio(audio_bytes, file.filename or "audio.mp3")
+    return JSONResponse(payload)
 
 
 if __name__ == "__main__":

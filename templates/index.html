@@ -16,13 +16,41 @@
         </p>
 
         <form id="upload-form" class="upload-form">
-          <label for="audio-file" class="file-label">Choose audio file</label>
+          <label id="drop-zone" for="audio-file" class="drop-zone">
+            <span class="drop-title">Drop your audio here</span>
+            <span class="drop-subtitle">or click to browse (MP3, WAV, M4A, OPUS)</span>
+          </label>
           <input id="audio-file" name="file" type="file" accept=".mp3,.wav,.m4a,.opus,audio/*" required />
+          <div class="file-meta-row">
+            <p id="file-meta" class="file-meta">No file selected</p>
+            <audio id="audio-preview" class="audio-preview" controls hidden></audio>
+          </div>
           <button id="submit-btn" type="submit">Transcribe</button>
         </form>
+        <div id="loader-overlay" class="loader-overlay" hidden>
+          <div class="loader-box">
+            <div class="loader-spinner" aria-hidden="true"></div>
+            <p id="loader-text" class="loader-text">Uploading audio...</p>
+            <div class="loader-track">
+              <div id="loader-bar" class="loader-bar"></div>
+            </div>
+            <p id="loader-elapsed" class="loader-elapsed">0s elapsed</p>
+          </div>
+        </div>
 
         <p id="status" class="status"></p>
+        <div class="result-toolbar">
+          <span class="result-label">Result</span>
+          <div class="result-actions">
+            <button id="copy-btn" type="button" class="ghost-btn" disabled>Copy</button>
+            <button id="download-btn" type="button" class="ghost-btn" disabled>Download .txt</button>
+          </div>
+        </div>
         <pre id="result" class="result" aria-live="polite"></pre>
+        <div class="minutes-wrap">
+          <p class="result-label">Meeting Minutes (English, 5 lines)</p>
+          <pre id="minutes-en" class="minutes" aria-live="polite"></pre>
+        </div>
       </section>
     </main>
 
