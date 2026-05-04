@@ -24,7 +24,8 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse("index.html", {"request": request})
+    # Starlette 0.29+: request must be the first argument (not inside context only).
+    return templates.TemplateResponse(request=request, name="index.html", context={})
 
 
 @app.post("/api/transcribe", response_class=JSONResponse)
