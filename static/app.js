@@ -8,7 +8,7 @@ const fileMeta = document.getElementById("file-meta");
 const audioPreview = document.getElementById("audio-preview");
 const copyBtn = document.getElementById("copy-btn");
 const downloadBtn = document.getElementById("download-btn");
-const minutesEl = document.getElementById("minutes-en");
+
 const loaderOverlay = document.getElementById("loader-overlay");
 const loaderText = document.getElementById("loader-text");
 const loaderElapsed = document.getElementById("loader-elapsed");
@@ -152,7 +152,6 @@ form.addEventListener("submit", async (event) => {
   downloadBtn.disabled = true;
   statusEl.textContent = "Transcribing audio...";
   resultEl.textContent = "";
-  minutesEl.textContent = "";
 
   try {
     const response = await fetch("/api/transcribe", {
@@ -167,7 +166,6 @@ form.addEventListener("submit", async (event) => {
 
     statusEl.textContent = "Completed.";
     resultEl.textContent = payload.transcription || "No transcription generated.";
-    minutesEl.textContent = payload.meeting_minutes_en || "Not clear.\nNot clear.\nNot clear.\nNot clear.\nNot clear.";
     copyBtn.disabled = !resultEl.textContent;
     downloadBtn.disabled = !resultEl.textContent;
   } catch (error) {
