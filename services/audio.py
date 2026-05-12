@@ -317,13 +317,67 @@ def _parse_json_payload(payload: str) -> dict[str, Any] | None:
 # Core diarisation + formatting
 # ---------------------------------------------------------------------------
 
+def _segment_transcript(client: OpenAI, transcript_text: str, team_csv: str) -> list[dict]:
+    """Pass 0 — split raw Urdu transcript into one block per speaker turn."""
+    resp = client.chat.completions.create(
+        model=POSTPROCESS_MODEL,
+        temperature=0,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a meeting transcript segmenter. "
+                    "Your only job is to split a standup transcript into individual speaker turns. "
+                    "This is a DAILY STANDUP: each team member gives their update one by one. "
+                    "The meeting host calls each person's name, then that person speaks. "
+                    "Or the person introduces themselves before speaking. "
+                    "Return JSON only — no markdown."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Approved team members (listen for these names being called): {team_csv}\n\n"
+                    f"Raw Urdu transcript:\n{transcript_text}\n\n"
+                    "Split into segments — one per speaker turn.\n"
+                    "For each segment, include:\n"
+                    "- 'speaker_hint': the name you heard called or spoken (in original form), "
+                    "  or 'Unknown' if you could not detect it\n"
+                    "- 'text': the exact transcript text for that turn\n\n"
+                    "IMPORTANT: In this standup format a host usually says the person's name "
+                    "before they speak. Look for name patterns like: 'X bolo', 'X?', 'X kya kiya', "
+                    "or someone saying their own name at the start of their turn.\n\n"
+                    '{"segments": [{"speaker_hint": "name or Unknown", "text": "their spoken text"}]}\n'
+                    "JSON only."
+                ),
+            },
+        ],
+        response_format={"type": "json_object"},
+    )
+    raw = (resp.choices[0].message.content or "").strip()
+    data = _parse_json_payload(raw) or {}
+    segments: list[dict] = data.get("segments", [])
+    # Fallback: treat whole transcript as one unknown segment
+    return segments or [{"speaker_hint": "Unknown", "text": transcript_text}]
+
+
 def _diarize_and_summarize(client: OpenAI, transcript_text: str) -> str:
-    """Run two-pass GPT extraction and return formatted meeting minutes string."""
+    """3-pass pipeline: segment → extract → validate. Returns formatted minutes."""
     today_str = date.today().strftime("%B %d, %Y")
     team_csv = ", ".join(TEAM_MEMBERS)
     project_csv = ", ".join(PROJECT_NAMES)
 
-    # ---- Pass 1: initial extraction ----------------------------------------
+    # ---- Pass 0: segment transcript into speaker turns ----------------------
+    segments = _segment_transcript(client, transcript_text, team_csv)
+
+    # Build a labelled version of the transcript for pass 1
+    labelled_transcript = "\n\n".join(
+        f"[Turn {i + 1}] Speaker hint: '{seg.get('speaker_hint', 'Unknown')}'\n"
+        f"{seg.get('text', '').strip()}"
+        for i, seg in enumerate(segments)
+    )
+
+    # ---- Pass 1: extract structured data per turn ---------------------------
     pass1 = client.chat.completions.create(
         model=POSTPROCESS_MODEL,
         temperature=0,
@@ -332,17 +386,20 @@ def _diarize_and_summarize(client: OpenAI, transcript_text: str) -> str:
             {
                 "role": "user",
                 "content": (
-                    f"Raw transcript:\n{transcript_text}\n\n"
+                    "Below is a standup transcript already split into individual speaker turns.\n"
+                    "Each turn has a 'Speaker hint' — use it as a strong clue for the name.\n\n"
+                    f"{labelled_transcript}\n\n"
                     f"Approved team members: {team_csv}\n"
                     f"Approved project names: {project_csv}\n\n"
                     f"{_NAME_RULES}\n"
-                    "Instructions:\n"
-                    "- List EVERY person who spoke, in order of first appearance.\n"
-                    "- For tasks: translate what they said they are doing/completed into "
-                    "  clear English bullet points.\n"
-                    "- For ETA: extract any time mentioned (e.g. 'end of day', '1 hour', "
-                    "  'today', 'completed').\n"
-                    "- For blocker: any issue stopping progress. Use 'None' if no blocker.\n\n"
+                    "For EACH turn:\n"
+                    "1. Map 'Speaker hint' to the closest approved team member name.\n"
+                    "2. If the hint is 'Unknown', read the text for any self-introduction or "
+                    "   name mentioned — then match to the approved list.\n"
+                    "3. Extract all tasks in clear English (translate from Urdu if needed).\n"
+                    "4. Extract ETA (e.g. 'end of day', '48 hours', 'completed', 'Not clear').\n"
+                    "5. Extract blocker. Use 'None' if no blocker mentioned.\n"
+                    "6. PROXY rule: if the text says 'X is working on Y', assign that task to X.\n\n"
                     f"{_JSON_SHAPE}"
                 ),
             },
@@ -351,7 +408,7 @@ def _diarize_and_summarize(client: OpenAI, transcript_text: str) -> str:
     )
     pass1_text = (pass1.choices[0].message.content or "").strip()
 
-    # ---- Pass 2: validation & correction ------------------------------------
+    # ---- Pass 2: validation — fix unknowns & missed speakers ----------------
     pass2 = client.chat.completions.create(
         model=POSTPROCESS_MODEL,
         temperature=0,
@@ -360,18 +417,21 @@ def _diarize_and_summarize(client: OpenAI, transcript_text: str) -> str:
             {
                 "role": "user",
                 "content": (
-                    f"Raw transcript:\n{transcript_text}\n\n"
+                    "Original segmented transcript:\n"
+                    f"{labelled_transcript}\n\n"
                     f"Approved team members: {team_csv}\n"
                     f"Approved project names: {project_csv}\n\n"
-                    f"Draft JSON to validate:\n{pass1_text}\n\n"
-                    "Second-pass checklist — fix every issue found:\n"
-                    "1. Is every speaker from the transcript represented? Add any missing ones.\n"
-                    "2. Are all names from the approved list? Correct or set 'Unknown Speaker'.\n"
+                    f"Draft JSON:\n{pass1_text}\n\n"
+                    "Fix every problem you find:\n"
+                    "1. Every 'Unknown Speaker' MUST be resolved — re-read the segment text "
+                    "   for any name clue (self-intro, host calling name, context). "
+                    "   Only use 'Unknown Speaker' if truly unresolvable.\n"
+                    "2. No team member who spoke should be missing.\n"
+                    "3. Merge duplicate entries for the same person.\n"
                     f"{_NAME_RULES}"
-                    "3. Are all task descriptions in clear English? Fix any that are not.\n"
-                    "4. Are project names normalised? (Signals.com → Signage.com, n10 → n8n, "
-                    "   xfail → Higgsfield)\n"
-                    "5. Blocker field: 'None' if no blocker, 'Not clear' if unclear.\n\n"
+                    "4. All tasks in clear English.\n"
+                    "5. Project names normalised (Signage inc → Signage.inc, n10 → n8n, etc.).\n"
+                    "6. Blocker: 'None' if no blocker, 'Not clear' only if genuinely ambiguous.\n\n"
                     f"{_JSON_SHAPE}"
                 ),
             },
@@ -384,16 +444,9 @@ def _diarize_and_summarize(client: OpenAI, transcript_text: str) -> str:
     people: list[dict] = data.get("people", []) if isinstance(data, dict) else []
 
     if not people:
-        people = [
-            {
-                "name": "Unknown Speaker",
-                "tasks": ["Not clear"],
-                "eta": "Not clear",
-                "blocker": "None",
-            }
-        ]
+        people = [{"name": "Unknown Speaker", "tasks": ["Not clear"], "eta": "Not clear", "blocker": "None"}]
 
-    # ---- Format output ------------------------------------------------------
+    # ---- Format output -------------------------------------------------------
     lines: list[str] = [f"Minutes of Meeting Daily \u2013 {today_str}", ""]
 
     for person in people:
@@ -404,20 +457,15 @@ def _diarize_and_summarize(client: OpenAI, transcript_text: str) -> str:
         tasks_list = [
             _canonicalize_text(str(t).strip()) for t in raw_tasks if str(t).strip()
         ]
-        tasks_text = ", ".join(tasks_list) or "Not clear"
+        tasks_text = ". ".join(tasks_list) or "Not clear"
 
         eta = _canonicalize_text((person.get("eta") or "Not clear").strip())
         blocker = _canonicalize_text((person.get("blocker") or "None").strip())
 
-        lines.extend([
-            name,
-            f"Tasks: {tasks_text}",
-            f"ETA: {eta}",
-            f"Blocker: {blocker}",
-            "",
-        ])
+        lines.extend([name, f"Tasks: {tasks_text}", f"ETA: {eta}", f"Blocker: {blocker}", ""])
 
     return "\n".join(lines).strip()
+
 
 
 # ---------------------------------------------------------------------------
